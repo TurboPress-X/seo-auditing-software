@@ -2,6 +2,7 @@ from spider.store import (
     connect, init_schema, enqueue, next_batch, mark_visited,
     count_visited, count_frontier, save_page, save_link, save_image,
     save_status, get_status, iter_pages, iter_links, iter_images,
+    delete_edges,
 )
 
 
@@ -11,7 +12,7 @@ def make(tmp_path):
     return conn
 
 
-def test_frontier_enqueue_dedup_and_batch(tmp_path):
+def test_next_batch_peeks_without_removing(tmp_path):
     conn = make(tmp_path)
     enqueue(conn, [("https://e.com/a", "https://e.com/a"),
                    ("https://e.com/b", "https://e.com/b")])
@@ -19,7 +20,19 @@ def test_frontier_enqueue_dedup_and_batch(tmp_path):
     assert count_frontier(conn) == 2
     batch = next_batch(conn, 10)
     assert len(batch) == 2
-    assert count_frontier(conn) == 0  # next_batch removes from frontier
+    assert count_frontier(conn) == 2  # peek leaves the rows in place
+    mark_visited(conn, "https://e.com/a")
+    assert count_frontier(conn) == 1  # only mark_visited removes
+
+
+def test_delete_edges_clears_page_links_and_images(tmp_path):
+    conn = make(tmp_path)
+    save_link(conn, "ID-1", "https://e.com/a", "https://e.com/x")
+    save_image(conn, "ID-1", "https://e.com/a", "https://e.com/i.png", True)
+    save_link(conn, "ID-2", "https://e.com/b", "https://e.com/y")
+    delete_edges(conn, "ID-1")
+    assert [l["target"] for l in iter_links(conn)] == ["https://e.com/y"]
+    assert list(iter_images(conn)) == []
 
 
 def test_visited_blocks_requeue(tmp_path):

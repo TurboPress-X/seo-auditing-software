@@ -69,11 +69,11 @@ def enqueue(conn, items) -> None:
 
 
 def next_batch(conn, n: int):
+    """Read up to n queued items WITHOUT removing them. A URL leaves the frontier
+    only when mark_visited records it (after its page is saved), so an interrupted
+    crawl re-processes in-flight URLs on resume rather than losing them."""
     rows = conn.execute("SELECT identity, display FROM frontier LIMIT ?", (n,)).fetchall()
-    out = [(r["identity"], r["display"]) for r in rows]
-    conn.executemany("DELETE FROM frontier WHERE identity=?", [(i,) for i, _ in out])
-    conn.commit()
-    return out
+    return [(r["identity"], r["display"]) for r in rows]
 
 
 def mark_visited(conn, identity: str) -> None:
@@ -117,11 +117,19 @@ def save_image(conn, found_on_id, found_on_url, src, missing_alt) -> None:
     )
 
 
+def delete_edges(conn, found_on_id: str) -> None:
+    """Remove prior link/image rows for a page so a re-crawl (e.g. after resume)
+    does not duplicate them. Flushed by the next committing call."""
+    conn.execute("DELETE FROM links WHERE found_on_id=?", (found_on_id,))
+    conn.execute("DELETE FROM images WHERE found_on_id=?", (found_on_id,))
+
+
 def save_status(conn, url, code, hops, final_url) -> None:
     conn.execute(
         "INSERT OR REPLACE INTO status_cache(url, code, hops, final_url) VALUES (?,?,?,?)",
         (url, str(code), hops, final_url),
     )
+    conn.commit()
 
 
 def _coerce_code(code: str):
@@ -138,7 +146,8 @@ def get_status(conn, url):
 
 
 def iter_pages(conn):
-    for r in conn.execute("SELECT * FROM pages"):
+    rows = conn.execute("SELECT * FROM pages").fetchall()
+    for r in rows:
         yield {
             "page_id": r["page_id"],
             "identity_url": r["identity_url"],
@@ -153,12 +162,14 @@ def iter_pages(conn):
 
 
 def iter_links(conn):
-    for r in conn.execute("SELECT * FROM links"):
+    rows = conn.execute("SELECT * FROM links").fetchall()
+    for r in rows:
         yield {"found_on_id": r["found_on_id"], "found_on_url": r["found_on_url"],
                "target": r["target"]}
 
 
 def iter_images(conn):
-    for r in conn.execute("SELECT * FROM images"):
+    rows = conn.execute("SELECT * FROM images").fetchall()
+    for r in rows:
         yield {"found_on_id": r["found_on_id"], "found_on_url": r["found_on_url"],
                "src": r["src"], "missing_alt": r["missing_alt"]}
