@@ -50,7 +50,7 @@ def test_page_audit_columns_and_filtering(tmp_path):
     a = ids["C-1"]
     assert a["Meta Description?"] == "Missing"
     assert a["Title Duplicated?"] == "Yes (2)"
-    assert a["Open Graph?"] == "Broken og:image"
+    assert a["Open Graph?"] == "Broken og:image; Missing: og:title, og:description, og:type, og:url"
     assert a["Canonical?"] == "OK"
     b = ids["C-2"]
     assert b["Canonical?"] == "Missing"
@@ -97,3 +97,6 @@ def test_summary_written(tmp_path):
     text = out.read_text(encoding="utf-8")
     assert "C-20260603" in text
     assert "Broken Link" in text
+    assert "1  Broken Link" in text
+    assert "1  Broken Image" in text
+    assert "1  Redirected" in text

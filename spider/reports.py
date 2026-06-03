@@ -23,14 +23,18 @@ def _dup_counts(pages, key):
 
 
 def _og_status(conn, page):
-    missing = [t for t in OG_TAGS if t not in page["og_present"]]
+    """Combined Open Graph verdict: flags a broken og:image and/or missing core
+    tags, so a page's full OG state shows in one cell (avoids 'fix one, find the
+    next next month')."""
+    parts = []
     if page["og_image"]:
         st = get_status(conn, page["og_image"])
         if st and classify(st[0], st[1]) == "broken":
-            return "Broken og:image"
+            parts.append("Broken og:image")
+    missing = [t for t in OG_TAGS if t not in page["og_present"]]
     if missing:
-        return "Missing: " + ", ".join(missing)
-    return "OK"
+        parts.append("Missing: " + ", ".join(missing))
+    return "; ".join(parts) if parts else "OK"
 
 
 def write_page_audit(conn, path: str) -> int:
