@@ -15,6 +15,9 @@ from spider.normalize import normalize_identity, same_site
 from spider.parse import parse_page
 from spider.status import check_status
 
+# CONCURRENCY bounds in-flight requests (via the semaphore below). TIMEOUT and
+# USER_AGENT are consumed by cli.py when it constructs the shared httpx client,
+# so they apply to every request made through run_crawl.
 CONCURRENCY = 10
 TIMEOUT = 20.0
 USER_AGENT = "TurboPress-Audit/1.0 (+https://turbopress.pro)"
@@ -23,7 +26,7 @@ USER_AGENT = "TurboPress-Audit/1.0 (+https://turbopress.pro)"
 async def resolve_origin(client: httpx.AsyncClient, start_url: str):
     """Follow the start URL's redirects to learn the canonical (scheme, host)."""
     try:
-        r = await client.get(start_url, follow_redirects=True)
+        r = await client.get(start_url, follow_redirects=True, timeout=TIMEOUT)
         return (r.url.scheme, r.url.host)
     except Exception:
         p = urlparse(start_url)
@@ -42,7 +45,7 @@ async def fetch_sitemap_urls(client, origin_scheme, origin_host):
             continue
         seen.add(sm)
         try:
-            r = await client.get(sm)
+            r = await client.get(sm, timeout=TIMEOUT)
         except Exception:
             continue
         if r.status_code != 200 or "<loc>" not in r.text:
@@ -71,7 +74,7 @@ async def run_crawl(conn, client: httpx.AsyncClient, start_url: str,
         pid = page_id(client_slug, identity)
         async with sem:
             try:
-                r = await client.get(display)
+                r = await client.get(display, timeout=TIMEOUT)
             except Exception:
                 store.delete_edges(conn, pid)
                 store.save_page(conn, pid, identity, display, None, None,
@@ -110,14 +113,18 @@ async def run_crawl(conn, client: httpx.AsyncClient, start_url: str,
         store.enqueue(conn, discovered)
         print(f"  crawled {store.count_visited(conn)} / queue {store.count_frontier(conn)}")
 
-    # status sweep over all link + image + og:image targets
+    # status sweep over all link + image + og:image targets. check_status acquires
+    # `sem` internally, so gathering a chunk stays bounded to CONCURRENCY; chunking
+    # keeps progress output flowing on large sites.
     targets = {l["target"] for l in store.iter_links(conn)}
     targets |= {i["src"] for i in store.iter_images(conn)}
     targets |= {p["og_image"] for p in store.iter_pages(conn) if p["og_image"]}
     targets = list(targets)
+    total = len(targets)
     cache = {}
-    for n, t in enumerate(targets, 1):
-        code, hops, final = await check_status(client, t, sem, cache)
-        store.save_status(conn, t, code, hops, final)
-        if n % 25 == 0 or n == len(targets):
-            print(f"  checked {n} / {len(targets)}")
+    for start in range(0, total, 50):
+        chunk = targets[start:start + 50]
+        results = await asyncio.gather(*(check_status(client, t, sem, cache) for t in chunk))
+        for t, (code, hops, final) in zip(chunk, results):
+            store.save_status(conn, t, code, hops, final)
+        print(f"  checked {min(start + 50, total)} / {total}")
