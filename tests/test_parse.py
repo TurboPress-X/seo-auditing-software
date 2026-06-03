@@ -60,3 +60,23 @@ def test_missing_title_and_description_are_none():
 
 def test_og_tags_constant():
     assert OG_TAGS == ["og:title", "og:description", "og:image", "og:type", "og:url"]
+
+
+def test_title_with_nested_tags():
+    html = "<html><head><title><span>My Site</span> — Blog</title></head><body></body></html>"
+    p = parse_page(html, "https://example.com/")
+    assert p.title == "My Site — Blog"
+
+
+def test_fragment_only_links_excluded():
+    html = '<html><body><a href="#top">top</a><a href="/real">real</a></body></html>'
+    p = parse_page(html, "https://example.com/page")
+    assert "https://example.com/page" not in p.links
+    assert "https://example.com/real" in p.links
+
+
+def test_data_src_image_used_when_src_absent():
+    html = '<html><body><img data-src="/lazy.png"></body></html>'
+    p = parse_page(html, "https://example.com/")
+    assert "https://example.com/lazy.png" in p.images
+    assert "https://example.com/lazy.png" in p.missing_alt

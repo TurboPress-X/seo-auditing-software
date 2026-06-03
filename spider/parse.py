@@ -29,8 +29,9 @@ def parse_page(html: str, page_url: str) -> PageData:
     soup = BeautifulSoup(html, "lxml")
     data = PageData()
 
-    if soup.title and soup.title.string:
-        data.title = soup.title.string.strip() or None
+    if soup.title:
+        title_text = soup.title.get_text(" ", strip=True)
+        data.title = title_text or None
 
     md = soup.find("meta", attrs={"name": "description"})
     if md and md.get("content", "").strip():
@@ -46,7 +47,10 @@ def parse_page(html: str, page_url: str) -> PageData:
     data.canonical_present = soup.find("link", attrs={"rel": "canonical"}) is not None
 
     for a in soup.find_all("a", href=True):
-        target = _abs(page_url, a["href"])
+        href = a["href"].strip()
+        if not href or href.startswith("#"):
+            continue
+        target = _abs(page_url, href)
         if target.startswith("http"):
             data.links.append(target)
 
