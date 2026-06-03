@@ -36,3 +36,13 @@ def test_identity_strips_fragment_keeps_query():
 def test_identity_uses_origin_scheme_for_relative_host():
     out = normalize_identity("http://www.example.com/p", "https", "example.com")
     assert out == "https://example.com/p"
+
+
+def test_reg_netloc_strips_port_and_www():
+    from spider.normalize import reg_netloc
+    assert reg_netloc("https://www.example.com:8443/x") == "example.com"
+    assert reg_netloc("http://example.com/x") == "example.com"
+
+
+def test_same_site_ignores_port():
+    assert same_site("https://example.com/a", "https://example.com:8443/b")
