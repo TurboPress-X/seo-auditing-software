@@ -51,17 +51,11 @@ def _write_all(conn, run_dir, url, client_slug, domain, started, resumed):
     print(f"\nReports written to {run_dir}")
 
 
-async def _drive(conn, run_dir, url, client_slug, domain, max_pages, resume, started):
-    interrupted = False
+async def _drive(conn, url, client_slug, max_pages, resume):
     headers = {"User-Agent": USER_AGENT}
     async with httpx.AsyncClient(headers=headers, timeout=TIMEOUT,
                                  follow_redirects=True) as client:
-        try:
-            await run_crawl(conn, client, url, client_slug, max_pages, resume)
-        except KeyboardInterrupt:
-            interrupted = True
-            print("\nInterrupted — writing partial report. Resume with --resume.")
-    _write_all(conn, run_dir, url, client_slug, domain, started, resume or interrupted)
+        await run_crawl(conn, client, url, client_slug, max_pages, resume)
 
 
 def main():
@@ -75,6 +69,10 @@ def main():
 
     url, client_slug = resolve_args(args.url, args.client)
     domain = urlparse(url).netloc.lower()
+    if not domain:
+        raise SystemExit(
+            f"Invalid URL '{url}' — include the scheme, e.g. https://example.com"
+        )
     base = os.getcwd()
     started = datetime.now().isoformat(timespec="seconds")
 
@@ -91,11 +89,16 @@ def main():
     print(f"Crawling up to {args.max_pages} pages of {url}")
     conn = store.connect(os.path.join(run_dir, "crawl.db"))
     store.init_schema(conn)
+    if args.resume and store.count_frontier(conn) == 0:
+        print("Nothing left to resume (previous crawl finished); regenerating reports.")
     try:
-        asyncio.run(_drive(conn, run_dir, url, client_slug, domain,
-                           args.max_pages, args.resume, started))
+        asyncio.run(_drive(conn, url, client_slug, args.max_pages, args.resume))
+        _write_all(conn, run_dir, url, client_slug, domain, started, args.resume)
     except KeyboardInterrupt:
+        print("\nInterrupted — writing partial report. Resume with --resume.")
         _write_all(conn, run_dir, url, client_slug, domain, started, True)
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

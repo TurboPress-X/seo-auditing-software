@@ -22,3 +22,12 @@ def test_build_run_dir_layout(tmp_path):
     assert os.path.isdir(d)
     assert os.path.basename(d) == "2026-06-03_0900"
     assert os.path.basename(os.path.dirname(d)) == "example.com"
+
+
+def test_main_rejects_url_without_scheme(monkeypatch):
+    import sys
+    import pytest
+    monkeypatch.setattr(sys, "argv", ["seo_audit.py", "example.com", "--client", "X"])
+    with pytest.raises(SystemExit):
+        from spider.cli import main
+        main()
