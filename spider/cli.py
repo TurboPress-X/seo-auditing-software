@@ -19,7 +19,7 @@ def resolve_args(url, client):
     if not url:
         url = input("Start URL: ").strip()
     if not client:
-        client = input("Client (Xero account name): ").strip()
+        client = input("Client name (used in report codes and filenames): ").strip()
     return url, slug_client(client)
 
 
@@ -58,9 +58,10 @@ async def _drive(conn, url, client_slug, max_pages, resume):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="TurboPress SEO spider report")
+    parser = argparse.ArgumentParser(
+        description="SEO spider — audit a site for technical SEO issues")
     parser.add_argument("url", nargs="?", help="start URL (prompted if omitted)")
-    parser.add_argument("--client", help="Xero client account name")
+    parser.add_argument("--client", help="client name/code (used in report codes and filenames)")
     parser.add_argument("--max-pages", type=int, default=5000)
     parser.add_argument("--resume", action="store_true",
                         help="continue the latest incomplete crawl for this domain")

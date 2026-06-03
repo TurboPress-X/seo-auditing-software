@@ -96,3 +96,39 @@ def test_resume_skips_visited(tmp_path):
     visited_after_first = count_visited(conn)
     asyncio.run(resumed())
     assert count_visited(conn) > visited_after_first
+
+
+def robots_site_handler(request):
+    path = request.url.path
+    if path == "/robots.txt":
+        return httpx.Response(200, text="User-agent: *\nDisallow: /secret\n")
+    if path == "/":
+        return httpx.Response(
+            200,
+            text='<html><head><title>Home</title></head><body>'
+                 '<a href="/ok">ok</a><a href="/secret/x">no</a></body></html>',
+            headers={"content-type": "text/html"},
+        )
+    if path == "/ok":
+        return httpx.Response(
+            200,
+            text='<html><head><title>OK</title></head><body></body></html>',
+            headers={"content-type": "text/html"},
+        )
+    if path in ("/sitemap.xml", "/sitemap_index.xml"):
+        return httpx.Response(404)
+    return httpx.Response(200, text="<html></html>", headers={"content-type": "text/html"})
+
+
+def test_run_crawl_respects_robots_disallow(tmp_path):
+    conn = connect(str(tmp_path / "c.db"))
+    init_schema(conn)
+
+    async def run():
+        async with mock_client(robots_site_handler) as client:
+            await run_crawl(conn, client, "https://s.test", "S", max_pages=50)
+
+    asyncio.run(run())
+    urls = {p["identity_url"] for p in iter_pages(conn)}
+    assert "https://s.test/ok" in urls
+    assert "https://s.test/secret/x" not in urls  # blocked by robots.txt

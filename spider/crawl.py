@@ -13,6 +13,7 @@ from spider import store
 from spider.identifiers import page_id
 from spider.normalize import normalize_identity, same_site
 from spider.parse import parse_page
+from spider.robots import load_robots
 from spider.status import check_status
 
 # CONCURRENCY bounds in-flight requests (via the semaphore below). TIMEOUT and
@@ -62,12 +63,17 @@ async def run_crawl(conn, client: httpx.AsyncClient, start_url: str,
                     client_slug: str, max_pages: int, resume: bool = False):
     scheme, host = await resolve_origin(client, start_url)
     root = f"{scheme}://{host}"
-    sem = asyncio.Semaphore(CONCURRENCY)
+    robots = await load_robots(client, scheme, host, USER_AGENT)
+    # A crawl-delay forces single-file, spaced requests; otherwise go concurrent.
+    sem = asyncio.Semaphore(1 if robots.delay else CONCURRENCY)
+    if robots.delay:
+        print(f"  robots.txt crawl-delay: {robots.delay}s (crawling one page at a time)")
 
     if not resume:
         seeds = await fetch_sitemap_urls(client, scheme, host)
         if not seeds:
             seeds = {normalize_identity(start_url, scheme, host)}
+        seeds = {s for s in seeds if robots.allowed(s)}
         store.enqueue(conn, [(s, s) for s in seeds])
 
     async def fetch_page(identity, display):
@@ -79,7 +85,11 @@ async def run_crawl(conn, client: httpx.AsyncClient, start_url: str,
                 store.delete_edges(conn, pid)
                 store.save_page(conn, pid, identity, display, None, None,
                                 None, [], None, False)
+                if robots.delay:
+                    await asyncio.sleep(robots.delay)
                 return []
+            if robots.delay:
+                await asyncio.sleep(robots.delay)
         status = r.status_code
         ctype = r.headers.get("content-type", "")
         store.delete_edges(conn, pid)
@@ -97,7 +107,7 @@ async def run_crawl(conn, client: httpx.AsyncClient, start_url: str,
             store.save_image(conn, pid, display, img, img in data.missing_alt)
         new = []
         for link in data.links:
-            if same_site(root, link):
+            if same_site(root, link) and robots.allowed(link):
                 new.append((normalize_identity(link, scheme, host), link))
         return new
 
