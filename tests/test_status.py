@@ -79,3 +79,22 @@ def test_check_status_get_fallback_on_405():
     code, hops, final = asyncio.run(run())
     assert code == 200
     assert "GET" in seen["methods"]
+
+
+def test_check_status_retries_once_then_succeeds():
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ConnectError("boom")
+        return httpx.Response(200)
+
+    async def run():
+        async with _client(handler) as client:
+            sem = asyncio.Semaphore(2)
+            return await check_status(client, "https://x.test/p", sem, {})
+
+    code, hops, final = asyncio.run(run())
+    assert code == 200
+    assert calls["n"] == 2
