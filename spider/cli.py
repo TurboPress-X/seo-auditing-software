@@ -37,10 +37,9 @@ def _find_resume_dir(base, domain):
     return os.path.join(root, dirs[-1]) if dirs else None
 
 
-def _write_all(conn, run_dir, url, client_slug, domain, started, resumed):
+def _write_all(conn, run_dir, url, client_slug, domain, started, resumed, origin):
     write_page_audit(conn, os.path.join(run_dir, "page_audit.csv"))
     write_link_issues(conn, os.path.join(run_dir, "link_issues.csv"))
-    origin = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
     write_summary(conn, os.path.join(run_dir, "summary.txt"), {
         "report_code": report_code(client_slug, datetime.now().date()),
         "client": client_slug, "domain": domain, "start_url": url,
@@ -55,7 +54,7 @@ async def _drive(conn, url, client_slug, max_pages, resume):
     headers = {"User-Agent": USER_AGENT}
     async with httpx.AsyncClient(headers=headers, timeout=TIMEOUT,
                                  follow_redirects=True) as client:
-        await run_crawl(conn, client, url, client_slug, max_pages, resume)
+        return await run_crawl(conn, client, url, client_slug, max_pages, resume)
 
 
 def main():
@@ -91,12 +90,14 @@ def main():
     store.init_schema(conn)
     if args.resume and store.count_frontier(conn) == 0:
         print("Nothing left to resume (previous crawl finished); regenerating reports.")
+    fallback_origin = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
     try:
-        asyncio.run(_drive(conn, url, client_slug, args.max_pages, args.resume))
-        _write_all(conn, run_dir, url, client_slug, domain, started, args.resume)
+        resolved = asyncio.run(_drive(conn, url, client_slug, args.max_pages, args.resume))
+        origin = f"{resolved[0]}://{resolved[1]}" if resolved else fallback_origin
+        _write_all(conn, run_dir, url, client_slug, domain, started, args.resume, origin)
     except KeyboardInterrupt:
         print("\nInterrupted — writing partial report. Resume with --resume.")
-        _write_all(conn, run_dir, url, client_slug, domain, started, True)
+        _write_all(conn, run_dir, url, client_slug, domain, started, True, fallback_origin)
     finally:
         conn.close()
 

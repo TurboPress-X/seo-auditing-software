@@ -128,3 +128,5 @@ async def run_crawl(conn, client: httpx.AsyncClient, start_url: str,
         for t, (code, hops, final) in zip(chunk, results):
             store.save_status(conn, t, code, hops, final)
         print(f"  checked {min(start + 50, total)} / {total}")
+
+    return (scheme, host)
