@@ -1,0 +1,21 @@
+# Crawl outputs (per-run data, never commit)
+runs/
+*.db
+*.csv
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# Local tooling / agent config
+.claude/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
