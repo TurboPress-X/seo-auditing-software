@@ -39,13 +39,24 @@ Requires Python 3.11+.
 
 ```bash
 python -m venv .venv
-# Windows
-.venv\Scripts\python -m pip install -r requirements.txt
-# macOS / Linux
-.venv/bin/python -m pip install -r requirements.txt
+
+# Activate the venv (do this in every new shell)
+.venv\Scripts\Activate.ps1     # Windows (PowerShell)
+source .venv/bin/activate       # macOS / Linux
+
+pip install -r requirements.txt
 ```
 
+> **Don't skip the activate step.** It's what makes plain `python` point at the
+> venv. Without it, `python seo_audit.py` runs against your global interpreter,
+> which has none of the dependencies installed and fails with
+> `ModuleNotFoundError: No module named 'httpx'`. On Windows, if activation is
+> blocked, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, then
+> activate again.
+
 ## Usage
+
+With the venv activated (see Install):
 
 ```bash
 python seo_audit.py https://example.com --client "Example Co"
@@ -80,14 +91,12 @@ in-flight ones.
 
 ## Tests
 
-Install the dev dependencies (adds `pytest`), then run the suite:
+With the venv activated, install the dev dependencies (adds `pytest`), then run
+the suite:
 
 ```bash
-.venv\Scripts\python -m pip install -r requirements-dev.txt   # Windows
-.venv\Scripts\python -m pytest
-
-.venv/bin/python -m pip install -r requirements-dev.txt       # macOS / Linux
-.venv/bin/python -m pytest
+pip install -r requirements-dev.txt
+pytest
 ```
 
 ## Roadmap
