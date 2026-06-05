@@ -243,3 +243,34 @@ def test_image_issues_sheet(tmp_path):
     # redirected image is not an image issue
     assert ("Broken Image", "https://e.com/imgredir.png") not in by_key
     assert ("Redirected", "https://e.com/imgredir.png") not in by_key
+
+
+def test_image_issues_excludes_data_uri_and_decorative(tmp_path):
+    from spider.reports import write_image_issues
+    conn = connect(str(tmp_path / "d.db"))
+    init_schema(conn)
+    # data-URI placeholder resolved to a bogus on-site URL that 404s -> excluded
+    durl = "https://e.com/image/svg+xml;base64,PHN2Zz4="
+    save_image(conn, "P-1", "https://e.com/p1", durl, False)
+    save_status(conn, durl, 404, 0, durl)
+    # gravatar avatar missing alt -> decorative, excluded
+    save_image(conn, "P-1", "https://e.com/p1", "https://secure.gravatar.com/avatar/abc?s=96", True)
+    # tracking pixel missing alt -> excluded
+    save_image(conn, "P-1", "https://e.com/p1", "https://stats.wp.com/pixel.gif", True)
+    # real content image missing alt -> KEPT
+    save_image(conn, "P-1", "https://e.com/p1", "https://e.com/wp-content/uploads/photo.jpg", True)
+    # real broken content image -> KEPT
+    dead = "https://e.com/wp-content/uploads/dead.jpg"
+    save_image(conn, "P-1", "https://e.com/p1", dead, False)
+    save_status(conn, dead, 404, 0, dead)
+    conn.commit()
+    out = tmp_path / "image_issues.csv"
+    write_image_issues(conn, str(out))
+    rows = read_csv(out)
+    urls = {r["Image URL"] for r in rows}
+    assert "https://e.com/wp-content/uploads/photo.jpg" in urls
+    assert dead in urls
+    assert not any(";base64," in u for u in urls)
+    assert not any("gravatar.com" in u for u in urls)
+    assert "https://stats.wp.com/pixel.gif" not in urls
+    assert len(rows) == 2

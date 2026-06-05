@@ -4,7 +4,7 @@ import csv
 from collections import defaultdict
 from urllib.parse import urlparse
 
-from spider.parse import OG_TAGS
+from spider.parse import OG_TAGS, _is_data_uri
 from spider.status import classify
 from spider.store import get_status, iter_images, iter_links, iter_pages
 
@@ -46,6 +46,17 @@ def is_geo_redirect(target_url: str, destination_url: str) -> bool:
     if len(label) == 2 and label.isascii() and label.isalpha():
         return rest == t or rest == _last_two(t)
     return False
+
+
+_DECORATIVE_PIXEL_HOSTS = {"stats.wp.com", "pixel.wp.com"}
+
+
+def _is_decorative_image(src: str) -> bool:
+    """Avatars and tracking pixels are not content images and carry no meaningful
+    alt text, so they are not image issues worth reporting."""
+    h = _host(src)
+    return (h == "gravatar.com" or h.endswith(".gravatar.com")
+            or h in _DECORATIVE_PIXEL_HOSTS)
 
 
 def _dup_counts(pages, key):
@@ -188,6 +199,8 @@ def _collect(conn, origin):
 
     for im in iter_images(conn):
         src = im["src"]
+        if _is_data_uri(src) or _is_decorative_image(src):
+            continue
         st = get_status(conn, src)
         if st and classify(st[0], st[1]) == "broken":
             key = ("Broken Image", src)
