@@ -12,6 +12,10 @@ PAGE_COLUMNS = ["Page ID", "URL", "Status Code", "Meta Title?", "Title Duplicate
                 "Meta Description?", "Meta Duplicated?", "Open Graph?", "Canonical?"]
 LINK_COLUMNS = ["Issue Type", "Found On (Page ID)", "Found On URL", "Target URL",
                 "Status Code", "Redirect Destination", "Hops"]
+EXTERNAL_SUMMARY_COLUMNS = ["Status Code", "Target URL", "Destination URL",
+                            "Pages Affected", "Example Page", "Note"]
+IMAGE_ISSUE_COLUMNS = ["Issue Type", "Image URL", "Status Code",
+                       "Pages Affected", "Example Page"]
 
 
 def _host(url: str) -> str:
@@ -138,6 +142,77 @@ def write_link_issues(conn, path: str) -> int:
             w.writerow(row)
             written += 1
     return written
+
+
+def _collect(conn, origin):
+    """Single classification pass -> (internal_rows, external, image) where:
+      internal_rows: list of LINK_COLUMNS tuples, exact byte-duplicates removed.
+      external: (groups, order); groups[key]={pages:set, example, note, verdict},
+                key=(status_str, target, destination).
+      image:    (groups, order); groups[key]={pages:set, example, code},
+                key=(issue_type, src)."""
+    origin_host = urlparse(origin).netloc.lower()
+    internal, seen = [], set()
+    ext, ext_order = {}, []
+    img, img_order = {}, []
+
+    for it in iter_links(conn):
+        target = it["target"]
+        st = get_status(conn, target)
+        if not st:
+            continue
+        code, hops, final = st
+        verdict = classify(code, hops)
+        if verdict == "ok":
+            continue
+        if is_internal(_host(target), origin_host):
+            if verdict == "redirected":
+                issue, dest, hop_s = "Redirected", final, str(hops)
+            else:
+                issue, dest, hop_s = "Broken Link", "", ""
+            row = (issue, it["found_on_id"], it["found_on_url"], target,
+                   str(code), dest, hop_s)
+            if row not in seen:
+                seen.add(row)
+                internal.append(row)
+        else:
+            dest = final if verdict == "redirected" else ""
+            key = (str(code), target, dest)
+            if key not in ext:
+                note = "geo-redirect" if (verdict == "redirected"
+                                          and is_geo_redirect(target, final)) else ""
+                ext[key] = {"pages": set(), "example": it["found_on_url"],
+                            "note": note, "verdict": verdict}
+                ext_order.append(key)
+            ext[key]["pages"].add(it["found_on_url"])
+
+    for im in iter_images(conn):
+        src = im["src"]
+        st = get_status(conn, src)
+        if st and classify(st[0], st[1]) == "broken":
+            key = ("Broken Image", src)
+            if key not in img:
+                img[key] = {"pages": set(), "example": im["found_on_url"], "code": str(st[0])}
+                img_order.append(key)
+            img[key]["pages"].add(im["found_on_url"])
+        if im["missing_alt"]:
+            key = ("Missing Alt", src)
+            if key not in img:
+                img[key] = {"pages": set(), "example": im["found_on_url"], "code": ""}
+                img_order.append(key)
+            img[key]["pages"].add(im["found_on_url"])
+
+    return internal, (ext, ext_order), (img, img_order)
+
+
+def write_internal_link_issues(conn, path: str, origin: str) -> int:
+    internal, _, _ = _collect(conn, origin)
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(LINK_COLUMNS)
+        for row in internal:
+            w.writerow(row)
+    return len(internal)
 
 
 def write_summary(conn, path: str, meta: dict) -> None:

@@ -126,3 +126,71 @@ def test_is_geo_redirect():
                                "https://www.linkedin.com/uas/login?x")
     assert not is_geo_redirect("https://www.facebook.com/sharer.php?u=x",
                                "https://www.facebook.com/share_channel/?x")
+
+
+def seeded(tmp_path):
+    """Crawl store with origin https://e.com and a mix of internal/external link
+    issues plus image issues, for the curated-sheet writers."""
+    conn = connect(str(tmp_path / "s.db"))
+    init_schema(conn)
+    # --- internal redirect e.com/old -> e.com/new, found on P1 (twice) and P2 ---
+    save_link(conn, "P-1", "https://e.com/p1", "https://e.com/old")
+    save_link(conn, "P-1", "https://e.com/p1", "https://e.com/old")  # byte-duplicate
+    save_link(conn, "P-2", "https://e.com/p2", "https://e.com/old")
+    save_status(conn, "https://e.com/old", 200, 1, "https://e.com/new")
+    # --- internal broken e.com/gone 404, found on P1 ---
+    save_link(conn, "P-1", "https://e.com/p1", "https://e.com/gone")
+    save_status(conn, "https://e.com/gone", 404, 0, "https://e.com/gone")
+    # --- internal OK link (excluded) ---
+    save_link(conn, "P-1", "https://e.com/p1", "https://e.com/fine")
+    save_status(conn, "https://e.com/fine", 200, 0, "https://e.com/fine")
+    # --- external geo-redirect pinterest, found on P1 and P2 ---
+    save_link(conn, "P-1", "https://e.com/p1", "https://www.pinterest.com/washparent")
+    save_link(conn, "P-2", "https://e.com/p2", "https://www.pinterest.com/washparent")
+    save_status(conn, "https://www.pinterest.com/washparent", 200, 1,
+                "https://za.pinterest.com/washparent")
+    # --- external non-geo redirect linkedin, found on P1 ---
+    save_link(conn, "P-1", "https://e.com/p1", "https://www.linkedin.com/shareArticle?x")
+    save_status(conn, "https://www.linkedin.com/shareArticle?x", 200, 1,
+                "https://www.linkedin.com/uas/login?x")
+    # --- external broken semantica (connect error), found on P1 and P2 ---
+    save_link(conn, "P-1", "https://e.com/p1", "https://semantica.co.za")
+    save_link(conn, "P-2", "https://e.com/p2", "https://semantica.co.za")
+    save_status(conn, "https://semantica.co.za", "ERR:ConnectError", 0, "https://semantica.co.za")
+    # --- broken image (CDN-ish), found on P1 and P2 ---
+    save_image(conn, "P-1", "https://e.com/p1", "https://e.com/broke.jpg", False)
+    save_image(conn, "P-2", "https://e.com/p2", "https://e.com/broke.jpg", False)
+    save_status(conn, "https://e.com/broke.jpg", 500, 0, "https://e.com/broke.jpg")
+    # --- image missing alt, found on P1 ---
+    save_image(conn, "P-1", "https://e.com/p1", "https://e.com/noalt.png", True)
+    save_status(conn, "https://e.com/noalt.png", 200, 0, "https://e.com/noalt.png")
+    # --- redirected image (must NOT appear on image sheet) ---
+    save_image(conn, "P-1", "https://e.com/p1", "https://e.com/imgredir.png", False)
+    save_status(conn, "https://e.com/imgredir.png", 200, 1, "https://e.com/final.png")
+    conn.commit()
+    return conn
+
+
+def test_internal_link_issues_sheet(tmp_path):
+    from spider.reports import write_internal_link_issues
+    conn = seeded(tmp_path)
+    out = tmp_path / "internal_link_issues.csv"
+    write_internal_link_issues(conn, str(out), "https://e.com")
+    rows = read_csv(out)
+    # only internal targets
+    targets = [r["Target URL"] for r in rows]
+    assert all(t.startswith("https://e.com/") for t in targets)
+    assert "https://www.pinterest.com/washparent" not in targets
+    assert "https://semantica.co.za" not in targets
+    # byte-duplicate dropped: e.com/old on P-1 appears once, on P-2 once => 2 rows
+    old_rows = [r for r in rows if r["Target URL"] == "https://e.com/old"]
+    assert len(old_rows) == 2
+    assert {r["Found On (Page ID)"] for r in old_rows} == {"P-1", "P-2"}
+    redir = next(r for r in old_rows if r["Found On (Page ID)"] == "P-1")
+    assert redir["Issue Type"] == "Redirected"
+    assert redir["Redirect Destination"] == "https://e.com/new"
+    assert redir["Hops"] == "1"
+    gone = next(r for r in rows if r["Target URL"] == "https://e.com/gone")
+    assert gone["Issue Type"] == "Broken Link"
+    assert gone["Status Code"] == "404"
+    assert "https://e.com/fine" not in targets  # ok excluded
