@@ -1,4 +1,4 @@
-"""Generate the two client CSVs and the summary from the store."""
+"""Generate the client CSV reports and the summary from the store."""
 
 import csv
 from collections import defaultdict
