@@ -228,6 +228,7 @@ def write_external_link_summary(conn, path: str, origin: str) -> int:
 
 
 def write_image_issues(conn, path: str) -> int:
+    # origin unused here: image classification is origin-independent
     _, _, (img, order) = _collect(conn, origin="")
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
@@ -240,8 +241,17 @@ def write_image_issues(conn, path: str) -> int:
 
 
 def write_summary(conn, path: str, meta: dict) -> None:
-    counts = Counter(row[0] for row in _issue_rows(conn))
+    internal, (ext, ext_order), (img, img_order) = _collect(conn, meta["origin"])
     pages = list(iter_pages(conn))
+
+    int_broken = sum(1 for r in internal if r[0] == "Broken Link")
+    int_redir = sum(1 for r in internal if r[0] == "Redirected")
+    ext_broken = sum(1 for k in ext_order if ext[k]["verdict"] == "broken")
+    ext_redir = sum(1 for k in ext_order if ext[k]["verdict"] == "redirected")
+    ext_geo = sum(1 for k in ext_order if ext[k]["note"] == "geo-redirect")
+    img_broken = sum(1 for k in img_order if k[0] == "Broken Image")
+    img_alt = sum(1 for k in img_order if k[0] == "Missing Alt")
+
     with open(path, "w", encoding="utf-8") as f:
         f.write(f"Report:        {meta['report_code']}\n")
         f.write(f"Client:        {meta['client']}\n")
@@ -253,5 +263,9 @@ def write_summary(conn, path: str, meta: dict) -> None:
         f.write(f"Resumed:       {meta['resumed']}\n")
         f.write(f"Pages crawled: {len(pages)}\n")
         f.write("\nLink & image issues:\n")
-        for k in ("Broken Link", "Broken Image", "Redirected", "Missing Alt"):
-            f.write(f"  {counts.get(k, 0):5d}  {k}\n")
+        f.write(f"  Internal link issues:  {len(internal):6d}  "
+                f"(broken {int_broken}, redirected {int_redir})\n")
+        f.write(f"  External problems:     {len(ext_order):6d}  "
+                f"(broken {ext_broken}, redirects {ext_redir}; of which geo {ext_geo})\n")
+        f.write(f"  Image issues:          {len(img_order):6d}  "
+                f"(broken {img_broken}, missing alt {img_alt})\n")

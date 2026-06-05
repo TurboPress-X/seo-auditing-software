@@ -89,23 +89,29 @@ def test_link_issues_classification(tmp_path):
     assert "https://e.com/fine" not in by_target  # ok links excluded
 
 
-def test_summary_written(tmp_path):
-    conn = populated(tmp_path)
+def test_summary_counts_three_sheets(tmp_path):
+    from spider.reports import write_summary
+    conn = seeded(tmp_path)
     out = tmp_path / "summary.txt"
-    write_summary(conn, str(out), {"report_code": "C-20260603",
-                                   "client": "C", "domain": "e.com",
+    write_summary(conn, str(out), {"report_code": "E-20260605",
+                                   "client": "E", "domain": "e.com",
                                    "start_url": "https://e.com",
                                    "origin": "https://e.com",
-                                   "started": "2026-06-03T09:00",
-                                   "finished": "2026-06-03T09:05",
+                                   "started": "2026-06-05T09:00",
+                                   "finished": "2026-06-05T09:05",
                                    "resumed": False})
     text = out.read_text(encoding="utf-8")
-    assert "C-20260603" in text
-    assert "Broken Link" in text
-    assert "1  Broken Link" in text
-    assert "1  Broken Image" in text
-    assert "1  Redirected" in text
-    assert "1  Missing Alt" in text
+    assert "E-20260605" in text
+    # internal: 2 redirected (old on P1+P2) + 1 broken (gone) = 3 rows
+    assert "Internal link issues:" in text
+    assert "broken 1" in text and "redirected 2" in text
+    # external: pinterest(geo) + linkedin + semantica = 3 distinct; 1 broken, 2 redirects, 1 geo
+    assert "External problems:" in text
+    assert "redirects 2" in text
+    assert "geo 1" in text
+    # images: 1 broken + 1 missing alt
+    assert "Image issues:" in text
+    assert "missing alt 1" in text
 
 
 def test_is_internal():
