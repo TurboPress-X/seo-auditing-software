@@ -2,6 +2,7 @@ import csv
 from spider.store import (connect, init_schema, save_page, save_link,
                           save_image, save_status)
 from spider.reports import write_page_audit, write_link_issues, write_summary
+from spider.reports import is_internal, is_geo_redirect
 
 
 def populated(tmp_path):
@@ -105,3 +106,23 @@ def test_summary_written(tmp_path):
     assert "1  Broken Image" in text
     assert "1  Redirected" in text
     assert "1  Missing Alt" in text
+
+
+def test_is_internal():
+    assert is_internal("washingtonparent.com", "washingtonparent.com")
+    assert is_internal("www.washingtonparent.com", "washingtonparent.com")
+    assert is_internal("picks.washingtonparent.com", "washingtonparent.com")
+    assert not is_internal("za.pinterest.com", "washingtonparent.com")
+    assert not is_internal("i0.wp.com", "washingtonparent.com")
+    assert not is_internal("washingtonparent.semantica.co.za", "washingtonparent.com")
+
+
+def test_is_geo_redirect():
+    assert is_geo_redirect("https://www.pinterest.com/washparent",
+                           "https://za.pinterest.com/washparent")
+    assert is_geo_redirect("https://pinterest.com/pin/create/button/?x=1",
+                           "https://za.pinterest.com/pin/create/button/?x=1")
+    assert not is_geo_redirect("https://www.linkedin.com/shareArticle?x",
+                               "https://www.linkedin.com/uas/login?x")
+    assert not is_geo_redirect("https://www.facebook.com/sharer.php?u=x",
+                               "https://www.facebook.com/share_channel/?x")

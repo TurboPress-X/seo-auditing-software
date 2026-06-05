@@ -2,6 +2,7 @@
 
 import csv
 from collections import Counter, defaultdict
+from urllib.parse import urlparse
 
 from spider.parse import OG_TAGS
 from spider.status import classify
@@ -11,6 +12,36 @@ PAGE_COLUMNS = ["Page ID", "URL", "Status Code", "Meta Title?", "Title Duplicate
                 "Meta Description?", "Meta Duplicated?", "Open Graph?", "Canonical?"]
 LINK_COLUMNS = ["Issue Type", "Found On (Page ID)", "Found On URL", "Target URL",
                 "Status Code", "Redirect Destination", "Hops"]
+
+
+def _host(url: str) -> str:
+    return urlparse(url).netloc.lower()
+
+
+def is_internal(host: str, origin_host: str) -> bool:
+    """Same-site test for <a> targets: the origin host or any subdomain of it."""
+    return host == origin_host or host.endswith("." + origin_host)
+
+
+def _last_two(host: str) -> str:
+    parts = host.split(".")
+    return ".".join(parts[-2:]) if len(parts) >= 2 else host
+
+
+def is_geo_redirect(target_url: str, destination_url: str) -> bool:
+    """True when a redirect only prepends a 2-letter country label to the same host
+    (e.g. pinterest.com -> za.pinterest.com), i.e. a crawl-location geo-route, not a
+    real destination change."""
+    t = _host(target_url)
+    d = _host(destination_url)
+    if t.startswith("www."):
+        t = t[4:]
+    if not t or not d:
+        return False
+    label, _, rest = d.partition(".")
+    if len(label) == 2 and label.isascii() and label.isalpha():
+        return rest == t or rest == _last_two(t)
+    return False
 
 
 def _dup_counts(pages, key):
