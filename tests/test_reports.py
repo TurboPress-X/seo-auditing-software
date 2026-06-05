@@ -2,6 +2,7 @@ import csv
 from spider.store import (connect, init_schema, save_page, save_link,
                           save_image, save_status)
 from spider.reports import write_page_audit, write_link_issues, write_summary
+from spider.reports import is_internal, is_geo_redirect
 
 
 def populated(tmp_path):
@@ -88,20 +89,188 @@ def test_link_issues_classification(tmp_path):
     assert "https://e.com/fine" not in by_target  # ok links excluded
 
 
-def test_summary_written(tmp_path):
-    conn = populated(tmp_path)
+def test_summary_counts_three_sheets(tmp_path):
+    from spider.reports import write_summary
+    conn = seeded(tmp_path)
     out = tmp_path / "summary.txt"
-    write_summary(conn, str(out), {"report_code": "C-20260603",
-                                   "client": "C", "domain": "e.com",
+    write_summary(conn, str(out), {"report_code": "E-20260605",
+                                   "client": "E", "domain": "e.com",
                                    "start_url": "https://e.com",
                                    "origin": "https://e.com",
-                                   "started": "2026-06-03T09:00",
-                                   "finished": "2026-06-03T09:05",
+                                   "started": "2026-06-05T09:00",
+                                   "finished": "2026-06-05T09:05",
                                    "resumed": False})
     text = out.read_text(encoding="utf-8")
-    assert "C-20260603" in text
-    assert "Broken Link" in text
-    assert "1  Broken Link" in text
-    assert "1  Broken Image" in text
-    assert "1  Redirected" in text
-    assert "1  Missing Alt" in text
+    assert "E-20260605" in text
+    # internal: 2 redirected (old on P1+P2) + 1 broken (gone) = 3 rows
+    assert "Internal link issues:" in text
+    assert "broken 1" in text and "redirected 2" in text
+    # external: pinterest(geo) + linkedin + semantica = 3 distinct; 1 broken, 2 redirects, 1 geo
+    assert "External problems:" in text
+    assert "redirects 2" in text
+    assert "geo 1" in text
+    # images: 1 broken + 1 missing alt
+    assert "Image issues:" in text
+    assert "missing alt 1" in text
+
+
+def test_is_internal():
+    assert is_internal("washingtonparent.com", "washingtonparent.com")
+    assert is_internal("www.washingtonparent.com", "washingtonparent.com")
+    assert is_internal("picks.washingtonparent.com", "washingtonparent.com")
+    assert not is_internal("za.pinterest.com", "washingtonparent.com")
+    assert not is_internal("i0.wp.com", "washingtonparent.com")
+    assert not is_internal("washingtonparent.semantica.co.za", "washingtonparent.com")
+
+
+def test_is_geo_redirect():
+    assert is_geo_redirect("https://www.pinterest.com/washparent",
+                           "https://za.pinterest.com/washparent")
+    assert is_geo_redirect("https://pinterest.com/pin/create/button/?x=1",
+                           "https://za.pinterest.com/pin/create/button/?x=1")
+    assert not is_geo_redirect("https://www.linkedin.com/shareArticle?x",
+                               "https://www.linkedin.com/uas/login?x")
+    assert not is_geo_redirect("https://www.facebook.com/sharer.php?u=x",
+                               "https://www.facebook.com/share_channel/?x")
+
+
+def seeded(tmp_path):
+    """Crawl store with origin https://e.com and a mix of internal/external link
+    issues plus image issues, for the curated-sheet writers."""
+    conn = connect(str(tmp_path / "s.db"))
+    init_schema(conn)
+    # --- internal redirect e.com/old -> e.com/new, found on P1 (twice) and P2 ---
+    save_link(conn, "P-1", "https://e.com/p1", "https://e.com/old")
+    save_link(conn, "P-1", "https://e.com/p1", "https://e.com/old")  # byte-duplicate
+    save_link(conn, "P-2", "https://e.com/p2", "https://e.com/old")
+    save_status(conn, "https://e.com/old", 200, 1, "https://e.com/new")
+    # --- internal broken e.com/gone 404, found on P1 ---
+    save_link(conn, "P-1", "https://e.com/p1", "https://e.com/gone")
+    save_status(conn, "https://e.com/gone", 404, 0, "https://e.com/gone")
+    # --- internal OK link (excluded) ---
+    save_link(conn, "P-1", "https://e.com/p1", "https://e.com/fine")
+    save_status(conn, "https://e.com/fine", 200, 0, "https://e.com/fine")
+    # --- external geo-redirect pinterest, found on P1 and P2 ---
+    save_link(conn, "P-1", "https://e.com/p1", "https://www.pinterest.com/washparent")
+    save_link(conn, "P-2", "https://e.com/p2", "https://www.pinterest.com/washparent")
+    save_status(conn, "https://www.pinterest.com/washparent", 200, 1,
+                "https://za.pinterest.com/washparent")
+    # --- external non-geo redirect linkedin, found on P1 ---
+    save_link(conn, "P-1", "https://e.com/p1", "https://www.linkedin.com/shareArticle?x")
+    save_status(conn, "https://www.linkedin.com/shareArticle?x", 200, 1,
+                "https://www.linkedin.com/uas/login?x")
+    # --- external broken semantica (connect error), found on P1 and P2 ---
+    save_link(conn, "P-1", "https://e.com/p1", "https://semantica.co.za")
+    save_link(conn, "P-2", "https://e.com/p2", "https://semantica.co.za")
+    save_status(conn, "https://semantica.co.za", "ERR:ConnectError", 0, "https://semantica.co.za")
+    # --- broken image (CDN-ish), found on P1 and P2 ---
+    save_image(conn, "P-1", "https://e.com/p1", "https://e.com/broke.jpg", False)
+    save_image(conn, "P-2", "https://e.com/p2", "https://e.com/broke.jpg", False)
+    save_status(conn, "https://e.com/broke.jpg", 500, 0, "https://e.com/broke.jpg")
+    # --- image missing alt, found on P1 ---
+    save_image(conn, "P-1", "https://e.com/p1", "https://e.com/noalt.png", True)
+    save_status(conn, "https://e.com/noalt.png", 200, 0, "https://e.com/noalt.png")
+    # --- redirected image (must NOT appear on image sheet) ---
+    save_image(conn, "P-1", "https://e.com/p1", "https://e.com/imgredir.png", False)
+    save_status(conn, "https://e.com/imgredir.png", 200, 1, "https://e.com/final.png")
+    conn.commit()
+    return conn
+
+
+def test_internal_link_issues_sheet(tmp_path):
+    from spider.reports import write_internal_link_issues
+    conn = seeded(tmp_path)
+    out = tmp_path / "internal_link_issues.csv"
+    write_internal_link_issues(conn, str(out), "https://e.com")
+    rows = read_csv(out)
+    # only internal targets
+    targets = [r["Target URL"] for r in rows]
+    assert all(t.startswith("https://e.com/") for t in targets)
+    assert "https://www.pinterest.com/washparent" not in targets
+    assert "https://semantica.co.za" not in targets
+    # byte-duplicate dropped: e.com/old on P-1 appears once, on P-2 once => 2 rows
+    old_rows = [r for r in rows if r["Target URL"] == "https://e.com/old"]
+    assert len(old_rows) == 2
+    assert {r["Found On (Page ID)"] for r in old_rows} == {"P-1", "P-2"}
+    redir = next(r for r in old_rows if r["Found On (Page ID)"] == "P-1")
+    assert redir["Issue Type"] == "Redirected"
+    assert redir["Redirect Destination"] == "https://e.com/new"
+    assert redir["Hops"] == "1"
+    gone = next(r for r in rows if r["Target URL"] == "https://e.com/gone")
+    assert gone["Issue Type"] == "Broken Link"
+    assert gone["Status Code"] == "404"
+    assert "https://e.com/fine" not in targets  # ok excluded
+
+
+def test_external_link_summary_sheet(tmp_path):
+    from spider.reports import write_external_link_summary
+    conn = seeded(tmp_path)
+    out = tmp_path / "external_link_summary.csv"
+    write_external_link_summary(conn, str(out), "https://e.com")
+    rows = read_csv(out)
+    by_target = {r["Target URL"]: r for r in rows}
+    # only external targets, no internal leakage
+    assert "https://e.com/old" not in by_target
+    pin = by_target["https://www.pinterest.com/washparent"]
+    assert pin["Status Code"] == "200"
+    assert pin["Destination URL"] == "https://za.pinterest.com/washparent"
+    assert pin["Pages Affected"] == "2"
+    assert pin["Example Page"] in {"https://e.com/p1", "https://e.com/p2"}
+    assert pin["Note"] == "geo-redirect"
+    li = by_target["https://www.linkedin.com/shareArticle?x"]
+    assert li["Pages Affected"] == "1"
+    assert li["Note"] == ""
+    assert li["Destination URL"] == "https://www.linkedin.com/uas/login?x"
+    sem = by_target["https://semantica.co.za"]
+    assert sem["Status Code"] == "ERR:ConnectError"
+    assert sem["Destination URL"] == ""
+    assert sem["Pages Affected"] == "2"
+
+
+def test_image_issues_sheet(tmp_path):
+    from spider.reports import write_image_issues
+    conn = seeded(tmp_path)
+    out = tmp_path / "image_issues.csv"
+    write_image_issues(conn, str(out))
+    rows = read_csv(out)
+    by_key = {(r["Issue Type"], r["Image URL"]): r for r in rows}
+    broke = by_key[("Broken Image", "https://e.com/broke.jpg")]
+    assert broke["Status Code"] == "500"
+    assert broke["Pages Affected"] == "2"
+    noalt = by_key[("Missing Alt", "https://e.com/noalt.png")]
+    assert noalt["Status Code"] == ""
+    assert noalt["Pages Affected"] == "1"
+    # redirected image is not an image issue
+    assert ("Broken Image", "https://e.com/imgredir.png") not in by_key
+    assert ("Redirected", "https://e.com/imgredir.png") not in by_key
+
+
+def test_image_issues_excludes_data_uri_and_decorative(tmp_path):
+    from spider.reports import write_image_issues
+    conn = connect(str(tmp_path / "d.db"))
+    init_schema(conn)
+    # data-URI placeholder resolved to a bogus on-site URL that 404s -> excluded
+    durl = "https://e.com/image/svg+xml;base64,PHN2Zz4="
+    save_image(conn, "P-1", "https://e.com/p1", durl, False)
+    save_status(conn, durl, 404, 0, durl)
+    # gravatar avatar missing alt -> decorative, excluded
+    save_image(conn, "P-1", "https://e.com/p1", "https://secure.gravatar.com/avatar/abc?s=96", True)
+    # tracking pixel missing alt -> excluded
+    save_image(conn, "P-1", "https://e.com/p1", "https://stats.wp.com/pixel.gif", True)
+    # real content image missing alt -> KEPT
+    save_image(conn, "P-1", "https://e.com/p1", "https://e.com/wp-content/uploads/photo.jpg", True)
+    # real broken content image -> KEPT
+    dead = "https://e.com/wp-content/uploads/dead.jpg"
+    save_image(conn, "P-1", "https://e.com/p1", dead, False)
+    save_status(conn, dead, 404, 0, dead)
+    conn.commit()
+    out = tmp_path / "image_issues.csv"
+    write_image_issues(conn, str(out))
+    rows = read_csv(out)
+    urls = {r["Image URL"] for r in rows}
+    assert "https://e.com/wp-content/uploads/photo.jpg" in urls
+    assert dead in urls
+    assert not any(";base64," in u for u in urls)
+    assert not any("gravatar.com" in u for u in urls)
+    assert "https://stats.wp.com/pixel.gif" not in urls
+    assert len(rows) == 2

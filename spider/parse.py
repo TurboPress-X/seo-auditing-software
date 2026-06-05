@@ -25,6 +25,13 @@ def _abs(base: str, ref: str) -> str:
     return urldefrag(urljoin(base, ref))[0]
 
 
+def _is_data_uri(ref: str) -> bool:
+    """data: URIs (and the Elementor `image/svg+xml;base64,...` placeholder, which
+    omits the `data:` prefix) are inline content, not crawlable URLs."""
+    r = ref.strip().lower()
+    return r.startswith("data:") or ";base64," in r
+
+
 def parse_page(html: str, page_url: str) -> PageData:
     soup = BeautifulSoup(html, "lxml")
     data = PageData()
@@ -48,7 +55,7 @@ def parse_page(html: str, page_url: str) -> PageData:
 
     for a in soup.find_all("a", href=True):
         href = a["href"].strip()
-        if not href or href.startswith("#"):
+        if not href or href.startswith("#") or _is_data_uri(href):
             continue
         target = _abs(page_url, href)
         if target.startswith("http"):
@@ -56,7 +63,7 @@ def parse_page(html: str, page_url: str) -> PageData:
 
     for img in soup.find_all("img"):
         src = img.get("src") or img.get("data-src")
-        if not src:
+        if not src or _is_data_uri(src):
             continue
         full = _abs(page_url, src)
         data.images.append(full)

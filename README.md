@@ -75,8 +75,11 @@ Output is written to `runs/<domain>/<date>_<time>/`:
 | File | Contents |
 |------|----------|
 | `page_audit.csv` | One row per page (HTTP 200) with at least one issue: missing/duplicate title or meta description, missing/broken Open Graph, missing canonical. |
-| `link_issues.csv` | Broken links, broken images, redirects (with hop count + final destination), and images missing `alt` text, joined back to pages via Page ID. |
-| `summary.txt` | Report code, timestamps, resolved canonical origin, pages crawled, and issue tallies. |
+| `internal_link_issues.csv` | On-site broken links and redirects to fix, in full detail (Page ID, found-on URL, status, redirect destination, hop count). This is your worklist. |
+| `external_link_summary.csv` | Off-site link problems, deduplicated to one row per problem, with a count of pages affected, an example page, and a `geo-redirect` flag for crawl-location artefacts (e.g. `pinterest.com` → `za.pinterest.com`). |
+| `image_issues.csv` | Broken images and images missing `alt` text, deduplicated to one row per image with a count of pages affected. |
+| `link_issues.csv` | Raw per-occurrence audit trail: every broken link, broken image, redirect and missing-`alt` as found, ungrouped — the source the three curated sheets are derived from. |
+| `summary.txt` | Report code, timestamps, resolved canonical origin, pages crawled, and per-sheet issue tallies (internal links, external problems, image issues). |
 | `crawl.db` | SQLite store of the crawl (also what makes `--resume` possible). |
 
 The crawl outputs are git-ignored, so the sites you audit never end up in version

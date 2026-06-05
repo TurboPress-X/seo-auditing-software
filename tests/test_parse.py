@@ -80,3 +80,20 @@ def test_data_src_image_used_when_src_absent():
     p = parse_page(html, "https://example.com/")
     assert "https://example.com/lazy.png" in p.images
     assert "https://example.com/lazy.png" in p.missing_alt
+
+
+def test_skips_data_uri_links_and_images():
+    html = """
+    <html><body>
+      <a href="data:text/html,hi">d</a>
+      <img src="image/svg+xml;base64,PHN2Zz48L3N2Zz4=">
+      <img src="data:image/png;base64,iVBOR">
+      <a href="/real">r</a>
+      <img src="/real.png" alt="x">
+    </body></html>
+    """
+    p = parse_page(html, "https://example.com/page")
+    assert "https://example.com/real" in p.links
+    assert all(";base64," not in u and "image/svg" not in u for u in p.links)
+    assert all(";base64," not in s and "image/svg" not in s for s in p.images)
+    assert "https://example.com/real.png" in p.images
