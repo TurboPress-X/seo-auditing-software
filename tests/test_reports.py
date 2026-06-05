@@ -219,3 +219,21 @@ def test_external_link_summary_sheet(tmp_path):
     assert sem["Status Code"] == "ERR:ConnectError"
     assert sem["Destination URL"] == ""
     assert sem["Pages Affected"] == "2"
+
+
+def test_image_issues_sheet(tmp_path):
+    from spider.reports import write_image_issues
+    conn = seeded(tmp_path)
+    out = tmp_path / "image_issues.csv"
+    write_image_issues(conn, str(out))
+    rows = read_csv(out)
+    by_key = {(r["Issue Type"], r["Image URL"]): r for r in rows}
+    broke = by_key[("Broken Image", "https://e.com/broke.jpg")]
+    assert broke["Status Code"] == "500"
+    assert broke["Pages Affected"] == "2"
+    noalt = by_key[("Missing Alt", "https://e.com/noalt.png")]
+    assert noalt["Status Code"] == ""
+    assert noalt["Pages Affected"] == "1"
+    # redirected image is not an image issue
+    assert ("Broken Image", "https://e.com/imgredir.png") not in by_key
+    assert ("Redirected", "https://e.com/imgredir.png") not in by_key

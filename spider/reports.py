@@ -227,6 +227,18 @@ def write_external_link_summary(conn, path: str, origin: str) -> int:
     return len(order)
 
 
+def write_image_issues(conn, path: str) -> int:
+    _, _, (img, order) = _collect(conn, origin="")
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(IMAGE_ISSUE_COLUMNS)
+        for key in order:
+            issue, src = key
+            g = img[key]
+            w.writerow([issue, src, g["code"], len(g["pages"]), g["example"]])
+    return len(order)
+
+
 def write_summary(conn, path: str, meta: dict) -> None:
     counts = Counter(row[0] for row in _issue_rows(conn))
     pages = list(iter_pages(conn))
