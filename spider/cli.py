@@ -12,7 +12,9 @@ import httpx
 from spider import store
 from spider.crawl import TIMEOUT, USER_AGENT, run_crawl
 from spider.identifiers import report_code, slug_client
-from spider.reports import write_link_issues, write_page_audit, write_summary
+from spider.reports import (write_link_issues, write_page_audit, write_summary,
+                            write_internal_link_issues, write_external_link_summary,
+                            write_image_issues)
 
 
 def resolve_args(url, client):
@@ -40,6 +42,9 @@ def _find_resume_dir(base, domain):
 def _write_all(conn, run_dir, url, client_slug, domain, started, resumed, origin):
     write_page_audit(conn, os.path.join(run_dir, "page_audit.csv"))
     write_link_issues(conn, os.path.join(run_dir, "link_issues.csv"))
+    write_internal_link_issues(conn, os.path.join(run_dir, "internal_link_issues.csv"), origin)
+    write_external_link_summary(conn, os.path.join(run_dir, "external_link_summary.csv"), origin)
+    write_image_issues(conn, os.path.join(run_dir, "image_issues.csv"))
     write_summary(conn, os.path.join(run_dir, "summary.txt"), {
         "report_code": report_code(client_slug, datetime.now().date()),
         "client": client_slug, "domain": domain, "start_url": url,
