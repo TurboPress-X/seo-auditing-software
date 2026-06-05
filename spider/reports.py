@@ -215,6 +215,18 @@ def write_internal_link_issues(conn, path: str, origin: str) -> int:
     return len(internal)
 
 
+def write_external_link_summary(conn, path: str, origin: str) -> int:
+    _, (ext, order), _ = _collect(conn, origin)
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(EXTERNAL_SUMMARY_COLUMNS)
+        for key in order:
+            code, target, dest = key
+            g = ext[key]
+            w.writerow([code, target, dest, len(g["pages"]), g["example"], g["note"]])
+    return len(order)
+
+
 def write_summary(conn, path: str, meta: dict) -> None:
     counts = Counter(row[0] for row in _issue_rows(conn))
     pages = list(iter_pages(conn))

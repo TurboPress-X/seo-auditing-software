@@ -194,3 +194,28 @@ def test_internal_link_issues_sheet(tmp_path):
     assert gone["Issue Type"] == "Broken Link"
     assert gone["Status Code"] == "404"
     assert "https://e.com/fine" not in targets  # ok excluded
+
+
+def test_external_link_summary_sheet(tmp_path):
+    from spider.reports import write_external_link_summary
+    conn = seeded(tmp_path)
+    out = tmp_path / "external_link_summary.csv"
+    write_external_link_summary(conn, str(out), "https://e.com")
+    rows = read_csv(out)
+    by_target = {r["Target URL"]: r for r in rows}
+    # only external targets, no internal leakage
+    assert "https://e.com/old" not in by_target
+    pin = by_target["https://www.pinterest.com/washparent"]
+    assert pin["Status Code"] == "200"
+    assert pin["Destination URL"] == "https://za.pinterest.com/washparent"
+    assert pin["Pages Affected"] == "2"
+    assert pin["Example Page"] in {"https://e.com/p1", "https://e.com/p2"}
+    assert pin["Note"] == "geo-redirect"
+    li = by_target["https://www.linkedin.com/shareArticle?x"]
+    assert li["Pages Affected"] == "1"
+    assert li["Note"] == ""
+    assert li["Destination URL"] == "https://www.linkedin.com/uas/login?x"
+    sem = by_target["https://semantica.co.za"]
+    assert sem["Status Code"] == "ERR:ConnectError"
+    assert sem["Destination URL"] == ""
+    assert sem["Pages Affected"] == "2"
