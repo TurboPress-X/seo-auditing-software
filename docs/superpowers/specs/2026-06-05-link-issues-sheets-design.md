@@ -73,10 +73,21 @@ source of truth.
   - Broken rows have an empty `Destination URL`; Status Code disambiguates
     (`200` + destination = redirect; `4xx`/`ERR:*` + empty = broken).
 
-### 4. `image_issues.csv` — all media, deduped
+### 4. `image_issues.csv` — content media, deduped
 - **Scope:** Broken Image + Missing Alt, every host (no internal/external split — the
   site's own media is served via the `i0.wp.com` Photon CDN, so a host split would
   misclassify it).
+- **Excluded as non-content / false positives** (skipped in `_collect`'s image loop,
+  before classification):
+  - **Data-URI srcs** (`_is_data_uri`): inline placeholders such as Elementor's
+    prefix-less `image/svg+xml;base64,…`, which the crawler otherwise resolves to a
+    bogus on-site URL that 404s. The parse-layer guard stops these entering *new*
+    crawls; this report-layer skip also cleans reports regenerated from a `crawl.db`
+    captured before that fix.
+  - **Decorative images** (`_is_decorative_image`): gravatar avatars
+    (`*.gravatar.com`) and known tracking pixels (`stats.wp.com`, `pixel.wp.com`) —
+    not content, carry no meaningful alt text. Real content images (wp-content
+    uploads, on-site `/images/…`, Photon CDN uploads) are NOT excluded.
 - **Granularity:** one row per `(Issue Type, Image URL)`.
 - **Columns:** `Issue Type, Image URL, Status Code, Pages Affected, Example Page`
   (Status Code blank for Missing Alt).
