@@ -1,7 +1,7 @@
 """Generate the two client CSVs and the summary from the store."""
 
 import csv
-from collections import Counter, defaultdict
+from collections import defaultdict
 from urllib.parse import urlparse
 
 from spider.parse import OG_TAGS
